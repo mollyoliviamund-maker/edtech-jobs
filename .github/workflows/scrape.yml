@@ -48,18 +48,4 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "New edtech jobs found"
-          to: ${{ secrets.TO_EMAIL }}       # <-- set to your email in repo secrets
-          from: ${{ secrets.FROM_EMAIL }}
-          content_type: text/html
-          body: file://email_body.md
-
-      - name: Commit artifacts
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.csv *.json || true
-          git commit -m "Update edtech jobs $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes"
-          git push
+          username:
