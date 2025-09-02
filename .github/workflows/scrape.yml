@@ -30,6 +30,7 @@ jobs:
       - name: Run scraper
         env:
           KEYWORDS: "assessment|director|program|project|product|testing|math|science"
+          MATCH_SCOPE: "title"
           TAG: "edtech"
         run: python scraper.py
 
