@@ -1,0 +1,78 @@
+# companies.yaml — ready to drop in
+
+# ---------- GREENHOUSE ----------
+greenhouse:
+  - duolingo
+  - coursera
+  - outschool
+  - clever
+  - classdojo
+  - newsela
+  - opensesame
+  - ixllearning
+  - goguardian
+  - renaissancelearning-nam
+  - 2u
+  - edmentum
+  # Added from “ready to add now”
+  - brainpop
+  - tutorme          # Pear Deck Tutor (TutorMe)
+  - udacity
+  - masterclass
+  - grammarly
+  - securly13
+  - skillsoft
+
+# ---------- LEVER ----------
+lever:
+  - instructure
+  # Added
+  - aofl            # ABCmouse / Age of Learning
+  - kiddom
+  - goalbookapp-2   # Goalbook
+
+# ---------- WORKDAY (headless) ----------
+workday:
+  - { company: Amplify,               host: amplify.wd1.myworkdayjobs.com,             tenant: amplify,               site: Amplify_Careers }
+  - { company: Curriculum Associates, host: curriculumassociates.wd5.myworkdayjobs.com, tenant: curriculumassociates, site: External }
+  - { company: College Board,         host: collegeboard.wd1.myworkdayjobs.com,        tenant: collegeboard,          site: Careers }
+  - { company: Cambium Assessment,    host: cambiumlearning.wd1.myworkdayjobs.com,     tenant: cambiumlearning,       site: camb }
+  # Added
+  - { company: Chegg,                 host: osv-chegg.wd5.myworkdayjobs.com,           tenant: osv-chegg,             site: Chegg }
+
+# ---------- WORKABLE ----------
+workable:
+  - { company: Riverside Insights, account: riverside-insights }
+  # Added
+  - { company: Zearn, account: zearn }
+
+# ---------- iCIMS ----------
+icims:
+  - { company: PowerSchool, host: careers-powerschool.icims.com }
+
+# ---------- TEAMTAILOR ----------
+teamtailor:
+  - { company: Data Recognition Corporation, host: careers.datarecognitioncorp.com }
+
+# ---------- ADP Workforce Now ----------
+adp:
+  - { company: Cognia,       host: workforcenow.adp.com }
+  - { company: Learning.com, host: workforcenow.adp.com }
+
+# ---------- SAP SuccessFactors ----------
+successfactors:
+  - { company: HMH,         host: careers.hmhco.com }
+  - { company: McGraw Hill, host: careers.mheducation.com }
+
+# ---------- JOBVITE ----------
+jobvite:
+  - { company: Imagine Learning, host: jobs.jobvite.com }
+
+# ---------- PERELESS / SUBMIT4JOBS ----------
+pereless:
+  - { company: ETS, host: etscareers.submit4jobs.com }
+
+# ---------- .JOBS / DirectEmployers ----------
+dejobs:
+  - { company: Pearson,      host: pearson.jobs }
+  - { company: Pearson VUE,  host: pearson.jobs }
