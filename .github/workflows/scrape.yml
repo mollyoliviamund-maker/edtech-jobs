@@ -23,3 +23,43 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run scraper
+        env:
+          KEYWORDS: "assessment|director|program|project|product|testing|math|science"
+          TAG: "edtech"
+        run: python scraper.py
+
+      - name: Check if email body exists
+        id: emailcheck
+        run: |
+          if [ -f email_body.md ] && [ -s email_body.md ]; then
+            echo "has_email=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_email=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send email notification
+        if: steps.emailcheck.outputs.has_email == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "New edtech jobs found"
+          to: ${{ secrets.TO_EMAIL }}       # <-- set to your email in repo secrets
+          from: ${{ secrets.FROM_EMAIL }}
+          content_type: text/html
+          body: file://email_body.md
+
+      - name: Commit artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add *.csv *.json || true
+          git commit -m "Update edtech jobs $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes"
+          git push
