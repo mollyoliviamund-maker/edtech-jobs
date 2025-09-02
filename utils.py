@@ -1,71 +1,81 @@
-import csv, json, os, re
+import os, re, csv, json
 from datetime import datetime, timezone
 from typing import Dict, Any
-from urllib.parse import urlparse, urlunparse
 
-MUSIC_PATTERN = re.compile(r"\bmusic\b", re.IGNORECASE)
+# --- Keywords from environment ---
+KW = os.getenv("KEYWORDS", "assessment|director|program|project|product|testing|math|science")
+raw_terms = [t.strip() for t in KW.split("|") if t.strip()]
 
-CSV_PATH = "music_jobs.csv"
-SEEN_PATH = "seen_music.json"
+def _term_to_regex(term: str) -> str:
+    """
+    Match a term as a whole word/phrase.
+    Example: 'program manager' -> \bprogram\s+manager\b
+    """
+    if " " in term:
+        parts = [re.escape(p) for p in term.split()]
+        return r"\b" + r"\s+".join(parts) + r"\b"
+    else:
+        return r"\b" + re.escape(term) + r"\b"
 
-CSV_HEADERS = [
-    "company", "platform", "title", "location", "job_id",
-    "url", "posted_at_iso", "detected_on_iso", "matched_on"
-]
-
-def _normalize_url(u: str) -> str:
-    if not u:
-        return ""
-    try:
-        p = urlparse(u)
-        return urlunparse((p.scheme, p.netloc, p.path, "", "", ""))
-    except Exception:
-        return u
-
-def load_seen() -> set:
-    if os.path.exists(SEEN_PATH):
-        with open(SEEN_PATH, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return set(data)
-            except Exception:
-                pass
-    return set()
-
-def save_seen(seen: set) -> None:
-    with open(SEEN_PATH, "w", encoding="utf-8") as f:
-        json.dump(sorted(list(seen)), f, indent=2)
-
-def ensure_csv() -> None:
-    needs_header = not os.path.exists(CSV_PATH) or os.path.getsize(CSV_PATH) == 0
-    if needs_header:
-        with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
-            csv.writer(f).writerow(CSV_HEADERS)
-
-def append_csv(row: Dict[str, Any]) -> None:
-    ensure_csv()
-    row = dict(row)
-    row["url"] = _normalize_url(row.get("url", ""))
-    with open(CSV_PATH, "a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([row.get(h, "") for h in CSV_HEADERS])
+pattern_src = r"(?:%s)" % "|".join(_term_to_regex(t) for t in raw_terms)
+KEYWORD_REGEX = re.compile(pattern_src, re.IGNORECASE)
 
 def job_matches_music(text: str) -> bool:
-    return bool(MUSIC_PATTERN.search(text or ""))
+    """Return True if any keyword matches the text."""
+    if not text:
+        return False
+    return bool(KEYWORD_REGEX.search(text))
 
-def normalized_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+# --- File paths per keyword set ---
+TAG = os.getenv("TAG", "edtech")
 
-def mk_row(company:str, platform:str, title:str, location:str, job_id:str, url:str, posted_at:str, matched_on:str) -> Dict[str, Any]:
+def _slug(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", s)[:50] or "jobs"
+
+CSV_PATH = f"{_slug(TAG)}_jobs.csv"
+SEEN_PATH = f"seen_{_slug(TAG)}.json"
+
+# --- Helpers ---
+def mk_row(company: str, platform: str, title: str, location: str, job_id: str, url: str,
+           posted_iso: str, match_basis: str) -> Dict[str, Any]:
     return {
         "company": company,
         "platform": platform,
-        "title": title or "",
-        "location": location or "",
-        "job_id": str(job_id or ""),
-        "url": _normalize_url(url or ""),
-        "posted_at_iso": posted_at or "",
-        "detected_on_iso": normalized_now(),
-        "matched_on": matched_on or "title_or_description",
+        "title": title,
+        "location": location,
+        "job_id": job_id,
+        "url": url,
+        "posted_iso": posted_iso,
+        "matched_on": match_basis,
     }
+
+def load_seen():
+    try:
+        with open(SEEN_PATH, "r", encoding="utf-8") as f:
+            return set(json.load(f))
+    except Exception:
+        return set()
+
+def save_seen(seen):
+    try:
+        with open(SEEN_PATH, "w", encoding="utf-8") as f:
+            json.dump(sorted(list(seen)), f)
+    except Exception:
+        pass
+
+def append_csv(row: Dict[str, Any]):
+    header = ["company","platform","title","location","job_id","url","posted_iso","matched_on","seen_at_utc"]
+    seen_at = datetime.now(timezone.utc).isoformat()
+    try:
+        need_header = not os.path.exists(CSV_PATH)
+        with open(CSV_PATH, "a", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            if need_header:
+                w.writerow(header)
+            w.writerow([
+                row.get("company",""), row.get("platform",""), row.get("title",""),
+                row.get("location",""), row.get("job_id",""), row.get("url",""),
+                row.get("posted_iso",""), row.get("matched_on",""), seen_at
+            ])
+    except Exception:
+        pass
