@@ -2,14 +2,18 @@ import os, re, csv, json
 from datetime import datetime, timezone
 from typing import Dict, Any
 
-# --- Keywords from environment ---
-KW = os.getenv("KEYWORDS", "assessment|director|program|project|product|testing|math|science")
+# =========================
+# Keyword matching controls
+# =========================
+# Keywords come from env; default doesn't matter once workflow sets KEYWORDS.
+KW = os.getenv("KEYWORDS", "music")
 raw_terms = [t.strip() for t in KW.split("|") if t.strip()]
 
 def _term_to_regex(term: str) -> str:
     """
-    Match a term as a whole word/phrase.
-    Example: 'program manager' -> \bprogram\s+manager\b
+    Build a whole-word/phrase regex:
+      - 'program manager' -> \bprogram\s+manager\b
+      - 'director'        -> \bdirector\b
     """
     if " " in term:
         parts = [re.escape(p) for p in term.split()]
@@ -17,17 +21,31 @@ def _term_to_regex(term: str) -> str:
     else:
         return r"\b" + re.escape(term) + r"\b"
 
-pattern_src = r"(?:%s)" % "|".join(_term_to_regex(t) for t in raw_terms)
+pattern_src = r"(?:%s)" % "|".join(_term_to_regex(t) for t in raw_terms) if raw_terms else r"^$"
 KEYWORD_REGEX = re.compile(pattern_src, re.IGNORECASE)
 
-def job_matches_music(text: str) -> bool:
-    """Return True if any keyword matches the text."""
-    if not text:
-        return False
-    return bool(KEYWORD_REGEX.search(text))
+# 'title' (default) OR 'title_or_description'
+MATCH_SCOPE = os.getenv("MATCH_SCOPE", "title").lower()
 
-# --- File paths per keyword set ---
-TAG = os.getenv("TAG", "edtech")
+def matches_kw(title: str = "", location: str = "", desc: str = "") -> bool:
+    """
+    Title-only by default to reduce false positives.
+    Flip to 'title_or_description' via env if you want to widen matching.
+    """
+    if MATCH_SCOPE == "title":
+        text = title or ""
+    else:
+        text = "\n".join([title or "", location or "", desc or ""])
+    return bool(text and KEYWORD_REGEX.search(text))
+
+# Back-compat if any older code calls this directly:
+def job_matches_music(text: str) -> bool:
+    return bool(text and KEYWORD_REGEX.search(text))
+
+# =========================
+# Filenames per run TAG
+# =========================
+TAG = os.getenv("TAG", KW)
 
 def _slug(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", s)[:50] or "jobs"
@@ -35,7 +53,9 @@ def _slug(s: str) -> str:
 CSV_PATH = f"{_slug(TAG)}_jobs.csv"
 SEEN_PATH = f"seen_{_slug(TAG)}.json"
 
-# --- Helpers ---
+# =========================
+# CSV / Seen helpers
+# =========================
 def mk_row(company: str, platform: str, title: str, location: str, job_id: str, url: str,
            posted_iso: str, match_basis: str) -> Dict[str, Any]:
     return {
