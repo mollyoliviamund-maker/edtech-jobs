@@ -48,9 +48,9 @@ jobs:
         with:
           server_address: ${{ secrets.SMTP_SERVER }}   # smtp.gmail.com
           server_port: ${{ secrets.SMTP_PORT }}        # 587
-          secure: false                                # use STARTTLS for Gmail
-          username: ${{ secrets.SMTP_USERNAME }}       # your bot Gmail
-          password: ${{ secrets.SMTP_PASSWORD }}       # the App Password
+          secure: false                                # Gmail uses STARTTLS
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
           subject: "New edtech jobs found"
           to: ${{ secrets.TO_EMAIL }}
           from: ${{ secrets.FROM_EMAIL }}
