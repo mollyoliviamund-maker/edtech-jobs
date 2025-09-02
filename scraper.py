@@ -40,7 +40,9 @@ def run(platform_filter=None, company_filter=None):
 
     seen = load_seen()
     total_new = 0
+
     email_jobs: List[Dict[str, Any]] = []
+    email_keys = set()  # dedupe key: (platform, company, job_id)
 
     # simple list-based platforms
     for plat in ["greenhouse", "lever"]:
@@ -64,7 +66,12 @@ def run(platform_filter=None, company_filter=None):
                     continue
                 seen.add(key)
                 append_csv(j)
-                email_jobs.append(j)   # <-- add to email
+
+                ek = (j["platform"], j["company"], j["job_id"])
+                if ek not in email_keys:
+                    email_keys.add(ek)
+                    email_jobs.append(j)
+
                 total_new += 1
                 new_count += 1
                 print(f"[NEW] {j['company']} | {j['title']} | {j['url']}")
@@ -92,7 +99,12 @@ def run(platform_filter=None, company_filter=None):
                     continue
                 seen.add(key)
                 append_csv(j)
-                email_jobs.append(j)   # <-- add to email
+
+                ek = (j["platform"], j["company"], j["job_id"])
+                if ek not in email_keys:
+                    email_keys.add(ek)
+                    email_jobs.append(j)
+
                 total_new += 1
                 new_count += 1
                 print(f"[NEW] {j['company']} | {j['title']} | {j['url']}")
@@ -102,19 +114,20 @@ def run(platform_filter=None, company_filter=None):
 
     # write email body if we found anything
     if email_jobs:
+        unique_count = len(email_jobs)
+        tag_label = os.getenv("TAG", "jobs")  # use TAG from workflow
         with open(EMAIL_BODY_PATH, "w", encoding="utf-8") as f:
-            f.write(f"<h2>{len(email_jobs)} new 'Music' jobs found</h2>\n<ul>\n")
+            f.write(f"<h2>{unique_count} new {tag_label} jobs found</h2>\n<ul>\n")
             for j in email_jobs:
                 title = j.get("title","")
                 company = j.get("company","")
                 plat = j.get("platform","")
                 loc = j.get("location","")
                 url = j.get("url","")
+                safe_loc = f" · {loc}" if loc else ""
                 f.write(
-                    f"<li><b>{company}</b> — {title}"
-                    f"{' · ' + loc if loc else ''} "
-                    f"(<i>{plat}</i>) — "
-                    f"<a href=\"{url}\">View</a></li>\n"
+                    f"<li><b>{company}</b> — {title}{safe_loc} "
+                    f"(<i>{plat}</i>) — <a href=\"{url}\">View</a></li>\n"
                 )
             f.write("</ul>\n")
 
@@ -122,7 +135,7 @@ def run(platform_filter=None, company_filter=None):
     return 0
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Multi-ATS Music Job Watcher")
+    ap = argparse.ArgumentParser(description="Multi-ATS Job Watcher")
     ap.add_argument("--platform", help="Limit to one platform")
     ap.add_argument("--company", help="Limit to one company slug/host/name")
     return ap.parse_args()
