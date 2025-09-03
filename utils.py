@@ -5,16 +5,10 @@ from typing import Dict, Any
 # =========================
 # Keyword matching controls
 # =========================
-# Keywords come from env; default doesn't matter once workflow sets KEYWORDS.
 KW = os.getenv("KEYWORDS", "music")
 raw_terms = [t.strip() for t in KW.split("|") if t.strip()]
 
 def _term_to_regex(term: str) -> str:
-    """
-    Build a whole-word/phrase regex:
-      - 'program manager' -> \bprogram\s+manager\b
-      - 'director'        -> \bdirector\b
-    """
     if " " in term:
         parts = [re.escape(p) for p in term.split()]
         return r"\b" + r"\s+".join(parts) + r"\b"
@@ -28,10 +22,6 @@ KEYWORD_REGEX = re.compile(pattern_src, re.IGNORECASE)
 MATCH_SCOPE = os.getenv("MATCH_SCOPE", "title").lower()
 
 def matches_kw(title: str = "", location: str = "", desc: str = "") -> bool:
-    """
-    Title-only by default to reduce false positives.
-    Flip to 'title_or_description' via env if you want to widen matching.
-    """
     if MATCH_SCOPE == "title":
         text = title or ""
     else:
@@ -57,7 +47,7 @@ SEEN_PATH = f"seen_{_slug(TAG)}.json"
 # CSV / Seen helpers
 # =========================
 def mk_row(company: str, platform: str, title: str, location: str, job_id: str, url: str,
-           posted_iso: str, match_basis: str) -> Dict[str, Any]:
+           posted_iso: str, match_basis: str, salary: str = "") -> Dict[str, Any]:
     return {
         "company": company,
         "platform": platform,
@@ -67,6 +57,7 @@ def mk_row(company: str, platform: str, title: str, location: str, job_id: str, 
         "url": url,
         "posted_iso": posted_iso,
         "matched_on": match_basis,
+        "salary": salary,
     }
 
 def load_seen():
@@ -84,7 +75,10 @@ def save_seen(seen):
         pass
 
 def append_csv(row: Dict[str, Any]):
-    header = ["company","platform","title","location","job_id","url","posted_iso","matched_on","seen_at_utc"]
+    header = [
+        "company","platform","title","location","job_id","url",
+        "posted_iso","matched_on","salary","seen_at_utc"
+    ]
     seen_at = datetime.now(timezone.utc).isoformat()
     try:
         need_header = not os.path.exists(CSV_PATH)
@@ -95,7 +89,8 @@ def append_csv(row: Dict[str, Any]):
             w.writerow([
                 row.get("company",""), row.get("platform",""), row.get("title",""),
                 row.get("location",""), row.get("job_id",""), row.get("url",""),
-                row.get("posted_iso",""), row.get("matched_on",""), seen_at
+                row.get("posted_iso",""), row.get("matched_on",""),
+                row.get("salary",""), seen_at
             ])
     except Exception:
         pass
