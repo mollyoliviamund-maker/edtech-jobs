@@ -30,6 +30,8 @@ lever:
   - aofl            # ABCmouse / Age of Learning
   - kiddom
   - goalbookapp-2   # Goalbook
+  - ellevationeducation
+
 
 # ---------- WORKDAY (headless) ----------
 workday:
