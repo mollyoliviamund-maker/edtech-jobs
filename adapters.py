@@ -11,10 +11,11 @@ except Exception:  # pragma: no cover
 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib.parse import quote_plus
 
-from utils import matches_kw, mk_row  # <-- NEW import
+from utils import matches_kw, mk_row
 
-# Quiet noisy warning in CI
+# Silence noisy bs4 warning in CI
 warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
 # ---------------- Shared HTTP session ----------------
@@ -23,7 +24,7 @@ def make_session() -> requests.Session:
     s.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 JobWatcher/2.2"
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 JobWatcher/2.4"
         ),
         "Accept": "application/json, text/html;q=0.9,*/*;q=0.8",
         "Content-Type": "application/json",
@@ -45,6 +46,54 @@ REQ_TIMEOUT = 35
 
 def _warn(msg: str):
     print(msg, file=sys.stderr)
+
+# ------------- salary helpers -------------
+_MONEY = re.compile(
+    r"(\$\s?\d[\d,]*(?:\.\d{2})?\s?(?:-\s?\$\s?\d[\d,]*(?:\.\d{2})?)?\s*(?:k|per\s?(?:year|yr|hour|hr|annum|month))?)",
+    re.IGNORECASE,
+)
+
+def _first_salary_from_text(text: str) -> str:
+    if not text:
+        return ""
+    m = _MONEY.search(text.replace("\xa0", " "))
+    return m.group(1).strip() if m else ""
+
+def _salary_from_metadata(md) -> str:
+    """Greenhouse and others sometimes include 'metadata' with name/value pairs."""
+    try:
+        for item in (md or []):
+            name = (item.get("name") or "").lower()
+            val = (item.get("value") or "").strip()
+            if not val:
+                continue
+            if any(k in name for k in ["salary", "compensation", "pay", "wage", "rate"]):
+                return val
+    except Exception:
+        pass
+    return ""
+
+def _salary_from_html(html: str) -> str:
+    """Generic HTML scan: look for labeled salary blocks, then fallback to regex."""
+    if not html:
+        return ""
+    soup = BeautifulSoup(html, "lxml")
+    selectors = [
+        ".salary", ".compensation", ".pay", "[itemprop='baseSalary']",
+        "[class*='salary']", "[class*='compensation']", "[class*='pay']",
+    ]
+    for sel in selectors:
+        try:
+            el = soup.select_one(sel)
+            if el:
+                txt = el.get_text(" ", strip=True)
+                if txt:
+                    # If it doesn't look like money, still allow, as some sites say "Competitive"
+                    return txt
+        except Exception:
+            pass
+    # fallback to money regex
+    return _first_salary_from_text(html)
 
 # ================== GREENHOUSE ==================
 def fetch_greenhouse(slug: str) -> List[Dict[str, Any]]:
@@ -68,13 +117,15 @@ def fetch_greenhouse(slug: str) -> List[Dict[str, Any]]:
         offices = j.get("offices") or []
         location = ", ".join([o.get("name","") for o in offices if isinstance(o, dict)]) or ""
         desc = j.get("content") or ""
+        salary = _salary_from_metadata(j.get("metadata")) or _salary_from_html(desc)
         if matches_kw(title, location, desc):
             posted_iso = (j.get("updated_at") or "").replace(" ", "T")
             if posted_iso and not posted_iso.endswith("Z"):
                 posted_iso += "Z"
             out.append(
                 mk_row(slug, "greenhouse", title, location, job_id, abs_url, posted_iso,
-                       "title" if scope == "title" else "title_or_description")
+                       "title" if scope == "title" else "title_or_description",
+                       salary=salary)
             )
     return out
 
@@ -101,15 +152,17 @@ def fetch_lever(slug: str) -> List[Dict[str, Any]]:
         job_id = p.get("id") or p.get("leverId") or p.get("hostedJobId") or ""
         apply_url = p.get("hostedUrl") or p.get("applyUrl") or (p.get("urls") or {}).get("apply") or ""
         desc = p.get("descriptionPlain") or p.get("description") or ""
+        salary = _first_salary_from_text(desc)  # Lever often embeds range in description
 
         matched = None
         if matches_kw(title, location, desc):
             matched = "title" if scope == "title" else "title_or_description"
         elif apply_url and scope != "title":
-            # only widen to page HTML when not in title-only mode
             jr = SESSION.get(apply_url, timeout=REQ_TIMEOUT)
-            if jr.status_code < 400 and matches_kw("", "", jr.text or ""):
-                matched = "description_html"
+            if jr.status_code < 400:
+                salary = salary or _salary_from_html(jr.text)
+                if matches_kw("", "", jr.text or ""):
+                    matched = "description_html"
 
         if matched:
             iso = ""
@@ -122,7 +175,7 @@ def fetch_lever(slug: str) -> List[Dict[str, Any]]:
                     )
                 except Exception:
                     iso = ""
-            out.append(mk_row(slug, "lever", title, location, str(job_id), apply_url, iso, matched))
+            out.append(mk_row(slug, "lever", title, location, str(job_id), apply_url, iso, matched, salary=salary))
     return out
 
 # ================== WORKDAY (headless via Playwright) ==================
@@ -181,14 +234,6 @@ def fetch_workday_headless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         # sniff or guess /wday/* endpoint
         if not sniff["variant"]:
-            def try_direct(v, t, s):
-                return page.evaluate(
-                    """async ({v,t,s})=>{
-                        const body={appliedFacets:{},limit:50,offset:0,searchText:"music"};
-                        const r=await fetch(`/wday/${v}/${t}/${s}/jobs`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
-                        return {ok:r.ok,status:r.status};
-                    }""", {"v":"cxs","t":tenant_hint or "", "s":site_hint or "External"}
-                )
             tenants = [sniff["tenant"], tenant_hint, tenant_hint.lower() if tenant_hint else None,
                        tenant_hint.upper() if tenant_hint else None]
             sites = [sniff["site"], site_hint, "Careers", "External", "Jobs", "US", "Students", "Campus"]
@@ -248,12 +293,14 @@ def fetch_workday_headless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
                     j.get("shortDescription") or "",
                     j.get("jobPostingInfo", {}).get("jobDescription", "")
                 ]).strip()
+                salary = _first_salary_from_text(desc)  # Workday often exposes in description text
                 if matches_kw(title, loc, desc):
                     jid = j.get("id") or j.get("jobId") or j.get("externalId") or ""
                     posted = (j.get("postedOn") or j.get("startDate") or "").replace(" ", "T")
                     if posted and not posted.endswith("Z"): posted += "Z"
                     out.append(mk_row(company, "workday", title, loc, str(jid), urlp, posted,
-                                      "title" if os.getenv("MATCH_SCOPE","title")=="title" else "title_or_description"))
+                                      "title" if os.getenv("MATCH_SCOPE","title")=="title" else "title_or_description",
+                                      salary=salary))
 
         context.close(); browser.close()
     return out
@@ -270,7 +317,7 @@ def fetch_workable(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         url = f"https://apply.workable.com/api/v3/accounts/{acc}/jobs?state=published"
         r = SESSION.get(url, timeout=REQ_TIMEOUT)
         if r.status_code == 404:
-            print(f"[INFO] workable:{acc} API 404 (using HTML fallback)", file=sys.stderr)
+            _warn(f"[INFO] workable:{acc} API 404 (using HTML fallback)")
             return []
         if r.status_code >= 400:
             _warn(f"[WARN] workable:{acc} -> HTTP {r.status_code}")
@@ -287,10 +334,12 @@ def fetch_workable(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             loc = j.get("location") or {}
             location = ", ".join([loc.get("city",""), loc.get("region",""), loc.get("country","")]).strip(", ").replace(",,", ",")
             desc = j.get("description") or ""
+            salary = _first_salary_from_text(desc)
             if matches_kw(title, location, desc):
                 jid = j.get("id") or j.get("shortcode") or ""
-                rows.append(mk_row(company, "workable", title, location, str(jid), url, "", 
-                                   "title" if os.getenv("MATCH_SCOPE","title")=="title" else "title_or_description"))
+                rows.append(mk_row(company, "workable", title, location, str(jid), url, "",
+                                   "title" if os.getenv("MATCH_SCOPE","title")=="title" else "title_or_description",
+                                   salary=salary))
         return rows
 
     def try_html(acc: str) -> List[Dict[str, Any]]:
@@ -315,16 +364,16 @@ def fetch_workable(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             if jr.status_code >= 400:
                 continue
             jsoup = BeautifulSoup(jr.text, "lxml")
-            h1 = jsoup.find("h1")
-            title = h1.get_text(strip=True) if h1 else ""
-            loc_el = jsoup.select_one("[data-ui='job-location'], .job-location, .job-details__location")
-            location = loc_el.get_text(strip=True) if loc_el else ""
+            title = (jsoup.find("h1").get_text(strip=True) if jsoup.find("h1") else "")
+            location = (jsoup.select_one("[data-ui='job-location'], .job-location, .job-details__location") or "").get_text(strip=True) if jsoup.select_one("[data-ui='job-location'], .job-location, .job-details__location") else ""
             desc = jsoup.get_text(" ", strip=True)[:20000]
+            salary = _salary_from_html(jr.text) or _first_salary_from_text(desc)
             if matches_kw(title, location, desc):
                 m = re.search(r"/j/([A-Z0-9]+)/", job_url)
                 jid = m.group(1) if m else job_url
-                rows.append(mk_row(company, "workable", title, location, jid, job_url, "", 
-                                   "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text"))
+                rows.append(mk_row(company, "workable", title, location, jid, job_url, "",
+                                   "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text",
+                                   salary=salary))
         return rows
 
     out.extend(try_api(account))
@@ -373,11 +422,13 @@ def fetch_icims(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         loc_el = jsoup.find("li", class_="iCIMS_JobLocation") or jsoup.find("span", class_="jobLocation")
         location = _text(loc_el)
         desc = jsoup.get_text(" ", strip=True)[:20000]
+        salary = _salary_from_html(jr.text) or _first_salary_from_text(desc)
         if matches_kw(title, location, desc):
             m = re.search(r"/jobs/(\d+)", job_url)
             jid = m.group(1) if m else job_url
-            out.append(mk_row(company, "icims", title, location, jid, job_url, "", 
-                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text"))
+            out.append(mk_row(company, "icims", title, location, jid, job_url, "",
+                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text",
+                              salary=salary))
     return out
 
 # ================== Teamtailor ==================
@@ -414,10 +465,12 @@ def fetch_teamtailor(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             addr = loc.get("address", {})
             location = ", ".join([addr.get("addressLocality",""), addr.get("addressRegion",""), addr.get("addressCountry","")]).strip(", ")
         desc = j.get("description") or ""
+        salary = j.get("baseSalary") or _first_salary_from_text(desc)
         if matches_kw(title, location, desc):
             jid = j.get("identifier") or url
-            out.append(mk_row(company, "teamtailor", title, location, str(jid), url, "", 
-                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "jsonld"))
+            out.append(mk_row(company, "teamtailor", title, location, str(jid), url, "",
+                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "jsonld",
+                              salary=str(salary) if salary else ""))
     return out
 
 # ================== ADP Workforce Now ==================
@@ -443,9 +496,11 @@ def fetch_adp(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             title = title_el.get_text(strip=True) if title_el else ""
             location = ""
             desc = jsoup.get_text(" ", strip=True)[:20000]
+            salary = _salary_from_html(jr.text) or _first_salary_from_text(desc)
             if matches_kw(title, location, desc):
-                out.append(mk_row(company, "adp", title, location, job_url, job_url, "", 
-                                  "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text"))
+                out.append(mk_row(company, "adp", title, location, job_url, job_url, "",
+                                  "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text",
+                                  salary=salary))
     return out
 
 # ================== SAP SuccessFactors ==================
@@ -469,9 +524,11 @@ def fetch_successfactors(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         title = title_el.get_text(strip=True) if title_el else ""
         location = ""
         desc = jsoup.get_text(" ", strip=True)[:20000]
+        salary = _salary_from_html(jr.text) or _first_salary_from_text(desc)
         if matches_kw(title, location, desc):
-            out.append(mk_row(company, "successfactors", title, location, job_url, job_url, "", 
-                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text"))
+            out.append(mk_row(company, "successfactors", title, location, job_url, job_url, "",
+                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text",
+                              salary=salary))
     return out
 
 # ================== Jobvite ==================
@@ -496,9 +553,11 @@ def fetch_jobvite(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         title = title_el.get_text(strip=True) if title_el else ""
         location = ""
         desc = jsoup.get_text(" ", strip=True)[:20000]
+        salary = _salary_from_html(jr.text) or _first_salary_from_text(desc)
         if matches_kw(title, location, desc):
-            out.append(mk_row(company, "jobvite", title, location, job_url, job_url, "", 
-                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text"))
+            out.append(mk_row(company, "jobvite", title, location, job_url, job_url, "",
+                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text",
+                              salary=salary))
     return out
 
 # ================== Pereless / Submit4Jobs ==================
@@ -523,14 +582,14 @@ def fetch_pereless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         title = title_el.get_text(strip=True) if title_el else ""
         location = ""
         desc = jsoup.get_text(" ", strip=True)[:20000]
+        salary = _salary_from_html(jr.text) or _first_salary_from_text(desc)
         if matches_kw(title, location, desc):
-            out.append(mk_row(company, "pereless", title, location, job_url, job_url, "", 
-                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text"))
+            out.append(mk_row(company, "pereless", title, location, job_url, job_url, "",
+                              "title" if os.getenv("MATCH_SCOPE","title")=="title" else "html_text",
+                              salary=salary))
     return out
 
 # ================== .jobs / DirectEmployers (e.g., pearson.jobs) ==================
-from urllib.parse import quote_plus
-
 def fetch_dejobs(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     host = (entry.get("host") or "").strip().rstrip("/")
@@ -585,7 +644,7 @@ def fetch_dejobs(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             _warn(f"[WARN] dejobs:{host} headless fallback failed")
 
     scope = os.getenv("MATCH_SCOPE", "title").lower()
-    for job_url in job_links[:80]:
+    for job_url in job_links[:100]:
         try:
             jr = SESSION.get(job_url, timeout=REQ_TIMEOUT)
             if jr.status_code >= 400: continue
@@ -603,12 +662,15 @@ def fetch_dejobs(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
                             loc = cand
             except Exception:
                 pass
+            html = jr.text or ""
             desc = jsoup.get_text(" ", strip=True)[:20000]
+            salary = _salary_from_html(html) or _first_salary_from_text(desc)
             if matches_kw(title, loc, desc):
                 m = re.search(r"/([A-Za-z0-9]{16,})/job/?", job_url)
                 jid = m.group(1) if m else job_url
-                out.append(mk_row(company, "dejobs", title, loc, jid, job_url, "", 
-                                  "title" if scope == "title" else "title_or_description"))
+                out.append(mk_row(company, "dejobs", title, loc, jid, job_url, "",
+                                  "title" if scope == "title" else "title_or_description",
+                                  salary=salary))
         except Exception:
             pass
     return out
