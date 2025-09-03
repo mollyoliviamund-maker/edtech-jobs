@@ -42,7 +42,7 @@ def run(platform_filter=None, company_filter=None):
     total_new = 0
 
     email_jobs: List[Dict[str, Any]] = []
-    email_keys = set()  # dedupe key: (platform, company, job_id)
+    email_keys = set()  # dedupe key: (company, job_id)
 
     # simple list-based platforms
     for plat in ["greenhouse", "lever"]:
@@ -67,7 +67,7 @@ def run(platform_filter=None, company_filter=None):
                 seen.add(key)
                 append_csv(j)
 
-                ek = (j["platform"], j["company"], j["job_id"])
+                ek = (j["company"], j["job_id"])
                 if ek not in email_keys:
                     email_keys.add(ek)
                     email_jobs.append(j)
@@ -100,7 +100,7 @@ def run(platform_filter=None, company_filter=None):
                 seen.add(key)
                 append_csv(j)
 
-                ek = (j["platform"], j["company"], j["job_id"])
+                ek = (j["company"], j["job_id"])
                 if ek not in email_keys:
                     email_keys.add(ek)
                     email_jobs.append(j)
@@ -114,21 +114,23 @@ def run(platform_filter=None, company_filter=None):
 
     # write email body if we found anything
     if email_jobs:
+        tag_label = os.getenv("TAG", "jobs")
         unique_count = len(email_jobs)
-        tag_label = os.getenv("TAG", "jobs")  # use TAG from workflow
         with open(EMAIL_BODY_PATH, "w", encoding="utf-8") as f:
             f.write(f"<h2>{unique_count} new {tag_label} jobs found</h2>\n<ul>\n")
             for j in email_jobs:
-                title = j.get("title","")
+                title   = j.get("title","")
                 company = j.get("company","")
-                plat = j.get("platform","")
-                loc = j.get("location","")
-                url = j.get("url","")
-                safe_loc = f" · {loc}" if loc else ""
-                f.write(
-                    f"<li><b>{company}</b> — {title}{safe_loc} "
-                    f"(<i>{plat}</i>) — <a href=\"{url}\">View</a></li>\n"
-                )
+                loc     = j.get("location","")
+                url     = j.get("url","")
+                salary  = j.get("salary","") or ""
+                bits = [f"<b>{company}</b> — {title}"]
+                if loc:
+                    bits.append(f" · {loc}")
+                if salary:
+                    bits.append(f" · {salary}")
+                line = "".join(bits) + f" — <a href=\"{url}\">View</a>"
+                f.write(f"<li>{line}</li>\n")
             f.write("</ul>\n")
 
     print(f"Done. New matches: {total_new}")
