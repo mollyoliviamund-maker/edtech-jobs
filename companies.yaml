@@ -38,6 +38,18 @@ greenhouse:
   - nerdy
   - d2l
   - guildeducation
+  - studycareers     # Study.com
+  - udemy           # Udemy
+  - bettermeus      # Better Me US
+  - noredink        # NoRedInk
+  - edreports
+  - teachforall
+  - transcendeducation
+  - chanzuckerberginitiative
+  - guild
+  - bettermeus        # Think Academy / Better Me US
+  - axiomtalentplatform
+  - trustpilot        # Instructional design (product education)
 
 # ---------- LEVER ----------
 lever:
@@ -52,6 +64,14 @@ lever:
   - voxy
   - transfrvr
   - zartis
+  - review            # The Princeton Review – test prep, tutoring, curriculum
+  - studypoint        # StudyPoint – tutoring & test prep
+  - 360learning       # 360Learning – collaborative learning platform (LMS)
+  - docebo            # Docebo – enterprise LMS
+  - educationatwork   # Education at Work – student/workforce development
+  - empowerly         # Empowerly – college counseling / admissions advising
+  - zeneducate        # Zen Educate – staffing platform for educators            # Age of Learning (ABCmouse) – early learning products
+  - deeplearningai  
 
 # ---------- WORKDAY (headless) ----------
 workday:
@@ -114,6 +134,35 @@ workday:
     site: Careers
     careers_url: https://pluralsight.wd1.myworkdayjobs.com/Careers
     api: https://pluralsight.wd1.myworkdayjobs.com/wday/cxs/pluralsight/Careers/jobs
+    # ---------- WORKDAY (add these) ----------
+  - company: Scholastic
+    host: scholastic.wd5.myworkdayjobs.com
+    tenant: scholastic
+    site: External
+    careers_url: https://scholastic.wd5.myworkdayjobs.com/External
+    api: https://scholastic.wd5.myworkdayjobs.com/wday/cxs/scholastic/External/jobs
+
+  - company: Kaplan (Graham Holdings)
+    host: ghc.wd1.myworkdayjobs.com
+    tenant: ghc
+    site: Kaplan_Careers
+    careers_url: https://ghc.wd1.myworkdayjobs.com/Kaplan_Careers
+    api: https://ghc.wd1.myworkdayjobs.com/wday/cxs/ghc/Kaplan_Careers/jobs
+
+  - company: Elsevier (RELX)
+    host: relx.wd3.myworkdayjobs.com
+    tenant: relx
+    site: ElsevierJobs
+    careers_url: https://relx.wd3.myworkdayjobs.com/ElsevierJobs
+    api: https://relx.wd3.myworkdayjobs.com/wday/cxs/relx/ElsevierJobs/jobs
+
+  - company: Nelnet (student loans / campus commerce)
+    host: nelnet.wd1.myworkdayjobs.com
+    tenant: nelnet
+    site: MyNelnet
+    careers_url: https://nelnet.wd1.myworkdayjobs.com/MyNelnet
+    api: https://nelnet.wd1.myworkdayjobs.com/wday/cxs/nelnet/MyNelnet/jobs
+
 
 # ---------- WORKABLE ----------
 workable:
@@ -121,11 +170,41 @@ workable:
     account: riverside-insights
   - company: Zearn
     account: zearn
+  - company: EQL Edtech
+    account: eqledtech
+  - company: Learner Education
+    account: learner-education
+  - company: Education Perfect
+    account: education-perfect
+  - company: Tutored by Teachers
+    account: tutoredbyteachers
+  - company: MasteryPrep
+    account: masteryprep
+  - company: UnboundEd
+    account: unbounded
+  - company: SchooLinks
+    account: schoolinks
+  - company: UWorld
+    account: uworld
 
 # ---------- iCIMS ----------
 icims:
   - company: PowerSchool
     host: careers-powerschool.icims.com
+  - company: Savvas Learning Company
+    host: careers-savvas.icims.com
+  - company: Renaissance Learning
+    host: careers-renlearn.icims.com
+  - company: Edmentum
+    host: careers-edmentum.icims.com
+  - company: Steampunk
+    host: careers-steampunk.icims.com
+  - company: Cadence Education
+    host: careers-cadence-education.icims.com
+  - company: Learn It Systems
+    host: careers-learnitacademic.icims.com
+  - company: Barnes & Noble Education
+    host: careers-bned.icims.com
 
 # ---------- TEAMTAILOR ----------
 teamtailor:
@@ -162,3 +241,8 @@ dejobs:
     host: pearson.jobs
   - company: Pearson VUE
     host: pearson.jobs
+
+# ---------- SELF-HOSTED CAREERS ----------
+selfhosted:
+  - company: Savvas Learning Company
+    careers_url: https://www.savvas.com/company/join-us/careers
