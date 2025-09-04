@@ -22,6 +22,22 @@ greenhouse:
   - grammarly
   - securly13
   - skillsoft
+  - khanacademy
+  - numerade
+  - generalassembly
+  - outschool
+  - newglobesandbox
+  - elevatek12teachwithus
+  - seesaw
+  - tutorme
+  - follettsoftware
+  - panoramaeducation
+  - skillsoft
+  - artofproblemsolving
+  - campusedu
+  - nerdy
+  - d2l
+  - guildeducation
 
 # ---------- LEVER ----------
 lever:
@@ -31,6 +47,11 @@ lever:
   - kiddom
   - goalbookapp-2   # Goalbook
   - ellevationeducation
+  - commonlit
+  - panopto
+  - voxy
+  - transfrvr
+  - zartis
 
 
 # ---------- WORKDAY (headless) ----------
