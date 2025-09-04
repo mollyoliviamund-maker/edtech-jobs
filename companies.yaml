@@ -62,7 +62,7 @@ workday:
   - { company: Cambium Assessment,    host: cambiumlearning.wd1.myworkdayjobs.com,     tenant: cambiumlearning,       site: camb }
   # Added
   - { company: Chegg,                 host: osv-chegg.wd5.myworkdayjobs.com,           tenant: osv-chegg,             site: Chegg }
-  company: Cengage Group
+  - company: Cengage Group
     host: cengage.wd5.myworkdayjobs.com
     tenant: cengage
     site: CengageNorthAmericaCareers
