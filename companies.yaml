@@ -62,6 +62,42 @@ workday:
   - { company: Cambium Assessment,    host: cambiumlearning.wd1.myworkdayjobs.com,     tenant: cambiumlearning,       site: camb }
   # Added
   - { company: Chegg,                 host: osv-chegg.wd5.myworkdayjobs.com,           tenant: osv-chegg,             site: Chegg }
+  company: Cengage Group
+    host: cengage.wd5.myworkdayjobs.com
+    tenant: cengage
+    site: CengageNorthAmericaCareers
+    careers_url: https://cengage.wd5.myworkdayjobs.com/CengageNorthAmericaCareers
+    api: https://cengage.wd5.myworkdayjobs.com/wday/cxs/cengage/CengageNorthAmericaCareers/jobs
+
+  - company: Wiley (John Wiley & Sons)
+    host: wiley.wd1.myworkdayjobs.com
+    tenant: wiley
+    site: wiley_careers
+    careers_url: https://wiley.wd1.myworkdayjobs.com/wiley_careers
+    api: https://wiley.wd1.myworkdayjobs.com/wday/cxs/wiley/wiley_careers/jobs
+
+  - company: Houghton Mifflin Harcourt (HMH)
+    host: hmhw.wd12.myworkdayjobs.com
+    tenant: hmhw
+    site: HMH_Careers
+    careers_url: https://hmhw.wd12.myworkdayjobs.com/HMH_Careers
+    api: https://hmhw.wd12.myworkdayjobs.com/wday/cxs/hmhw/HMH_Careers/jobs
+
+  - company: Stride (formerly K12 Inc.)
+    host: strideinc.wd1.myworkdayjobs.com
+    tenant: strideinc
+    site: SK
+    careers_url: https://strideinc.wd1.myworkdayjobs.com/SK
+    api: https://strideinc.wd1.myworkdayjobs.com/wday/cxs/strideinc/SK/jobs
+   
+    - company: Pluralsight
+    host: pluralsight.wd1.myworkdayjobs.com
+    tenant: pluralsight
+    site: Careers
+    careers_url: https://pluralsight.wd1.myworkdayjobs.com/Careers
+    api: https://pluralsight.wd1.myworkdayjobs.com/wday/cxs/pluralsight/Careers/jobs
+
+    
 
 # ---------- WORKABLE ----------
 workable:
