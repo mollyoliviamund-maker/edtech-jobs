@@ -491,7 +491,11 @@ def fetch_workday_headless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
                         try:
                             res = page.evaluate(
                                 """async ({v,t,s})=>{
-                                    const body={appliedFacets:{},limit:50,offset:0,searchText:"music"};
+                                    // Empty searchText: this call only needs to confirm the
+                                    // endpoint shape is correct, and an empty search is the
+                                    // most reliable way to get a 200 regardless of what
+                                    // keywords the run is configured for.
+                                    const body={appliedFacets:{},limit:1,offset:0,searchText:""};
                                     const r=await fetch(`/wday/${v}/${t}/${s}/jobs`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
                                     return {ok:r.ok,status:r.status};
                                 }""", {"v":v, "t":t, "s":s_}
@@ -509,19 +513,54 @@ def fetch_workday_headless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             _warn(f"[WARN] workday({company}) sniff failed")
             return out
 
-        # final query (we still use "music" just to hit the endpoint; matching is done locally)
-        resp = page.evaluate(
-            """async ({variant,tenant,site})=>{
-                const body={appliedFacets:{},limit:50,offset:0,searchText:"music"};
-                const r=await fetch(`/wday/${variant}/${tenant}/${site}/jobs`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
-                if(!r.ok) return null;
-                return await r.json();
-            }""", sniff
-        )
+        # Final query. Two changes from the original here:
+        #
+        #  1. searchText is now "" instead of a hardcoded "music". The original
+        #     sent "music" on every request regardless of what KEYWORDS was set
+        #     to. That was harmless only while KEYWORDS happened to also be
+        #     "music" - with the seniority/domain keywords now in use, a
+        #     server-side "music" filter would return ~nothing from all 14
+        #     Workday companies while every other platform worked fine.
+        #
+        #  2. Because an empty search returns the FULL board rather than a
+        #     handful of keyword hits, the old single request with limit=50
+        #     would now silently truncate any company with more than 50 open
+        #     roles (Scholastic, Wiley, Kaplan and Elsevier are all well past
+        #     that). So this now pages through results and filters locally.
+        WD_PAGE_SIZE = 50
+        WD_MAX_PAGES = 20  # hard cap => at most 1000 postings/company, bounds runtime
 
-        if resp:
-            jobs = (resp.get("jobPostings") or resp.get("jobs") or [])
-            for j in jobs:
+        all_jobs = []
+        for page_idx in range(WD_MAX_PAGES):
+            payload = dict(sniff)
+            payload["limit"] = WD_PAGE_SIZE
+            payload["offset"] = page_idx * WD_PAGE_SIZE
+            try:
+                resp = page.evaluate(
+                    """async ({variant,tenant,site,limit,offset})=>{
+                        const body={appliedFacets:{},limit:limit,offset:offset,searchText:""};
+                        const r=await fetch(`/wday/${variant}/${tenant}/${site}/jobs`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),credentials:'same-origin'});
+                        if(!r.ok) return null;
+                        return await r.json();
+                    }""", payload
+                )
+            except Exception as e:
+                _warn(f"[WARN] workday({company}) page {page_idx} failed -> {e}")
+                break
+            if not resp:
+                break
+            batch = (resp.get("jobPostings") or resp.get("jobs") or [])
+            if not batch:
+                break
+            all_jobs.extend(batch)
+            if len(batch) < WD_PAGE_SIZE:
+                break  # short page => last page
+        else:
+            _warn(f"[INFO] workday({company}) hit the {WD_MAX_PAGES}-page cap "
+                  f"({WD_MAX_PAGES * WD_PAGE_SIZE} postings); results may be truncated")
+
+        if all_jobs:
+            for j in all_jobs:
                 title = (j.get("title") or "").strip()
                 urlp = j.get("externalPath") or j.get("externalUrl") or j.get("url") or ""
                 if urlp and urlp.startswith("/"): urlp = f"https://{host}{urlp}"
@@ -909,9 +948,31 @@ def fetch_dejobs(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     company = entry.get("company") or host
     if not host: return out
 
-    kw = os.getenv("KEYWORDS", "music")
-    queries = [f"https://{host}/search/?q={quote_plus(kw)}",
-               f"https://{host}/jobs/?q={quote_plus(kw)}"]
+    # The original sent the raw KEYWORDS value as a single ?q= parameter. That
+    # worked when KEYWORDS was the single word "music", but the value is now a
+    # long pipe-separated list, and "?q=director%7Cmanager%7Cvice+president..."
+    # is not a query any job board understands - it would return junk or
+    # nothing. So: issue one search per DOMAIN term (those are the narrow,
+    # high-signal ones - Pearson has thousands of postings, so searching
+    # "director" server-side would be uselessly broad), then apply the real
+    # seniority+domain filter locally via matches_kw() as usual.
+    from utils import DOMAIN_KW, KW as SENIORITY_KW
+
+    def _terms(s: str) -> List[str]:
+        return [t.strip() for t in (s or "").split("|") if t.strip()]
+
+    search_terms = _terms(DOMAIN_KW) or _terms(SENIORITY_KW)
+    # Cap the number of server-side searches: each term costs 2 requests per
+    # host, and the local filter is what actually decides matches anyway.
+    MAX_DEJOBS_QUERIES = 6
+    search_terms = search_terms[:MAX_DEJOBS_QUERIES]
+    if not search_terms:
+        search_terms = [""]
+
+    queries: List[str] = []
+    for term in search_terms:
+        queries.append(f"https://{host}/search/?q={quote_plus(term)}")
+        queries.append(f"https://{host}/jobs/?q={quote_plus(term)}")
 
     def collect_links(html: str) -> List[str]:
         soup = BeautifulSoup(html or "", "lxml")
