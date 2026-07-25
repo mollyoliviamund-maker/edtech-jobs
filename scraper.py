@@ -44,7 +44,7 @@ format via utils.py, the CLI flags - is unchanged.
 import os, sys, html, yaml, argparse
 from typing import Dict, Any, List, Optional
 
-from utils import load_seen, save_seen, append_csv
+from utils import load_seen, save_seen, append_csv, TAG
 from adapters import (
     fetch_greenhouse, fetch_lever,
     fetch_workday_headless,
@@ -201,7 +201,10 @@ def run(platform_filter=None, company_filter=None):
 
     # write (or clear) the email digest
     if email_jobs:
-        tag_label = os.getenv("TAG", "jobs")
+        # Use the same TAG value utils.py uses for filenames, so the digest
+        # header and the CSV name stay in sync. (Previously this defaulted
+        # separately to "jobs", producing "N new jobs jobs found".)
+        tag_label = TAG
         unique_count = len(email_jobs)
         with open(EMAIL_BODY_PATH, "w", encoding="utf-8") as f:
             f.write(f"<h2>{html.escape(str(unique_count))} new {html.escape(tag_label)} jobs found</h2>\n<ul>\n")
