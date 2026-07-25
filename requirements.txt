@@ -1,5 +1,35 @@
-requests==2.32.3
-PyYAML==6.0.2
-beautifulsoup4==4.12.3
-lxml==5.2.2
-playwright==1.46.0
+# requirements.txt — EdTech Job Watcher
+#
+# Every package here is imported directly by the code. Verified by scanning
+# imports across scraper.py, utils.py, adapters.py and verify_endpoints.py.
+#
+# Version floors rather than pins: these are all stable, widely-used libraries
+# and the code doesn't depend on anything version-specific. If you'd rather
+# have fully reproducible builds, replace >= with == and pin to whatever
+# `pip freeze` reports after a known-good run.
+
+# HTTP client. Used for every non-Workday fetch, and by verify_endpoints.py.
+requests>=2.31.0
+
+# Retry/backoff logic (HTTPAdapter + urllib3.util.retry.Retry in adapters.py).
+# Ships as a requests dependency, but listed explicitly because adapters.py
+# imports it directly rather than through requests.
+urllib3>=2.0.0
+
+# HTML parsing for every scraper fallback path.
+beautifulsoup4>=4.12.0
+
+# REQUIRED, not optional: adapters.py calls BeautifulSoup(html, "lxml")
+# everywhere. Without lxml installed, every HTML-scraping platform
+# (iCIMS, ADP, SuccessFactors, Jobvite, Pereless, DirectEmployers, and the
+# Greenhouse/Lever/Workable HTML fallbacks) raises FeatureNotFound at runtime.
+lxml>=5.0.0
+
+# companies.yaml parsing in scraper.py and verify_endpoints.py.
+PyYAML>=6.0
+
+# Headless Chromium for Workday tenants (fetch_workday_headless) and the
+# DirectEmployers fallback. Note: `pip install playwright` only installs the
+# Python bindings - the browser binaries come from the separate
+# `python -m playwright install --with-deps chromium` step in the workflow.
+playwright>=1.40.0
