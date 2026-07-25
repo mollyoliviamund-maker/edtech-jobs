@@ -31,9 +31,27 @@ Changes in this pass, all driven by real failures observed via verify_endpoints.
    Workable HTML fallbacks) - hammering one host with dozens of rapid requests
    is itself a big part of what trips bot detection in the first place.
 
-Nothing about matching/parsing/output format changed - mk_row()/matches_kw()
-contracts and the shape of each fetch_*() function's return value are the same
-as before.
+8. Workday: the JS payload hardcoded searchText:"music" on every request,
+   regardless of what KEYWORDS was set to. That was harmless only while
+   KEYWORDS also happened to be "music"; with the current seniority/domain
+   keywords it would have returned ~nothing from all 14 Workday companies
+   while every other platform worked normally. Now sends an empty search.
+   Because an empty search returns the full board instead of a few keyword
+   hits, the old single limit=50 request would have silently truncated any
+   company with 50+ openings (Scholastic, Wiley, Kaplan, Elsevier all
+   qualify), so it now paginates with a 20-page / 1000-posting cap.
+9. fetch_dejobs: previously put the raw KEYWORDS value into a single ?q=
+   parameter. That worked for the single word "music" but not for a
+   pipe-separated list ("?q=director%7Cmanager%7C..." is not a query any job
+   board understands). Now issues one search per DOMAIN term (first 6, which
+   utils.py deliberately interleaves across personalization AND assessment
+   so neither half is missed) and applies the real filter locally.
+
+Matching/parsing/output contracts are otherwise unchanged: mk_row() and
+matches_kw() signatures and the return shape of each fetch_*() are the same.
+The one behavioral change is that Workday and DirectEmployers now retrieve a
+broader candidate set and rely on local filtering, rather than pre-filtering
+server-side with a keyword that no longer reflects the configuration.
 """
 
 from typing import List, Dict, Any
