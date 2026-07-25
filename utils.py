@@ -68,22 +68,54 @@ KW = os.getenv("KEYWORDS", DEFAULT_SENIORITY)
 # non-US (Education Perfect/AU, Kahoot!/NO, Zen Educate/UK, Renaissance EMEA),
 # and "personalisation" would otherwise silently miss every one of their roles.
 DEFAULT_DOMAIN = "|".join([
-    # personalization / adaptive
+    # --- personalization / adaptive ---
+    # Noun forms and explicit two-word phrases only. Bare "personalized" and
+    # bare "adaptive" were deliberately REMOVED: "we deliver personalized
+    # instruction" and "our adaptive curriculum" are marketing boilerplate in
+    # essentially every edtech job description, so as description-scoped terms
+    # they matched almost everything. The noun/phrase forms below indicate the
+    # role is actually ABOUT personalization, not just at a company that
+    # mentions it.
     "personalization", "personalisation",
-    "personalized", "personalised",
     "personalized learning", "personalised learning",
-    "adaptive learning", "adaptive",
-    "differentiation", "differentiated instruction",
-    "recommendation", "learner model",
-    # assessment / measurement
+    "adaptive learning", "adaptive engine", "adaptive instruction",
+    "differentiated instruction",
+    "recommendation engine", "learner model", "knowledge tracing",
+    # --- assessment / measurement ---
     "assessment", "psychometric", "psychometrics",
     "measurement", "efficacy",
-    "item development", "item writing", "test development",
-    "formative", "summative", "benchmark assessment",
+    "item development", "item writing", "item bank", "test development",
+    "formative assessment", "summative assessment", "benchmark assessment",
     "learning science", "learning sciences",
-    "student growth", "score report", "standardized test",
+    "student growth", "score report", "standardized test", "test design",
 ])
 DOMAIN_KW = os.getenv("DOMAIN_KEYWORDS", DEFAULT_DOMAIN)
+
+# ---- 3. EXCLUDED title terms (hard veto, checked against TITLE only) ----
+# A title containing any of these is rejected outright, no matter what the
+# seniority/domain filters say.
+#
+# Why this exists: "Lead Math Tutor" contains the seniority word "lead" but is
+# an individual-contributor teaching role, not leadership. Tutoring-heavy
+# boards (Think Academy, Nerdy/Varsity Tutors, Princeton Review, StudyPoint,
+# Tutored by Teachers) can produce dozens of these in a single run and drown
+# out the handful of real leadership roles.
+#
+# Note on word boundaries + the optional-plural rule: "tutor" does NOT match
+# "Tutoring", and "coach" does NOT match "Coaching" - so genuinely senior
+# titles like "Director of Tutoring" or "Head of Coaching" still get through.
+#
+# Tradeoff to be aware of: this also vetoes titles like "Manager, Teacher
+# Success" or "Director of Instructor Operations", which may be roles you
+# actually want. If you're missing things, trim this list first.
+DEFAULT_EXCLUDE_TITLE = "|".join([
+    "tutor", "teacher", "instructor", "coach",
+    "trainee", "intern", "internship",
+    "faculty", "aide", "paraprofessional", "substitute",
+    "proctor", "grader", "scorer", "rater",
+    "babysitter", "nanny",
+])
+EXCLUDE_TITLE_KW = os.getenv("EXCLUDE_TITLE_KEYWORDS", DEFAULT_EXCLUDE_TITLE)
 
 
 def _term_to_regex(term: str) -> str:
@@ -111,6 +143,7 @@ def _compile_terms(terms_str: str) -> Optional[re.Pattern]:
 
 SENIORITY_REGEX = _compile_terms(KW)
 DOMAIN_REGEX = _compile_terms(DOMAIN_KW)
+EXCLUDE_TITLE_REGEX = _compile_terms(EXCLUDE_TITLE_KW)
 
 # Back-compat: some callers/log lines still reference KEYWORD_REGEX.
 KEYWORD_REGEX = SENIORITY_REGEX
@@ -122,19 +155,43 @@ KEYWORD_REGEX = SENIORITY_REGEX
 MATCH_SCOPE = os.getenv("MATCH_SCOPE", "title").lower()
 DOMAIN_SCOPE = os.getenv("DOMAIN_SCOPE", "title_or_description").lower()
 
+if MATCH_SCOPE != "title":
+    # This is a genuine footgun, not a style preference, so it's worth saying
+    # out loud on every run: virtually every job description contains the verb
+    # "lead" ("lead sessions", "lead projects", "lead a team"), so scoping the
+    # SENIORITY filter to descriptions makes it match nearly everything and
+    # silently collapses the two-filter design into a domain-only match.
+    # Observed in practice: it turned a run into 47 hits dominated by
+    # part-time math tutors.
+    import sys as _sys
+    print(
+        f"[WARN] MATCH_SCOPE={MATCH_SCOPE!r}: the seniority filter is being matched against "
+        "job DESCRIPTIONS, not just titles. Words like 'lead' appear in almost every "
+        "description, so this will match large numbers of individual-contributor roles. "
+        "Set MATCH_SCOPE=title (the default) unless you specifically want this.",
+        file=_sys.stderr,
+    )
+
 
 def matches_kw(title: str = "", location: str = "", desc: str = "") -> bool:
-    """True only if the job passes BOTH the seniority and domain filters.
+    """True only if the job passes the exclusion veto AND both the seniority
+    and domain filters.
 
     A filter with no terms configured is skipped entirely, so setting
     DOMAIN_KEYWORDS="" reduces this to a plain single-keyword match (the
-    original behavior).
+    original behavior), and EXCLUDE_TITLE_KEYWORDS="" disables the veto.
     """
     if SENIORITY_REGEX is None and DOMAIN_REGEX is None:
         return False  # nothing configured - match nothing rather than everything
 
     title_text = title or ""
     full_text = "\n".join([title or "", location or "", desc or ""])
+
+    # 0. Hard veto on excluded title terms. Checked FIRST and against the title
+    #    only - an IC teaching role stays an IC teaching role no matter what
+    #    seniority word also happens to appear in its title.
+    if EXCLUDE_TITLE_REGEX is not None and title_text and EXCLUDE_TITLE_REGEX.search(title_text):
+        return False
 
     if SENIORITY_REGEX is not None:
         target = title_text if MATCH_SCOPE == "title" else full_text
@@ -155,6 +212,10 @@ def match_detail(title: str = "", location: str = "", desc: str = "") -> str:
     the difference between 'obviously relevant' and 'worth a skim'."""
     title_text = title or ""
     full_text = "\n".join([title or "", location or "", desc or ""])
+    if EXCLUDE_TITLE_REGEX is not None and title_text:
+        m = EXCLUDE_TITLE_REGEX.search(title_text)
+        if m:
+            return f"EXCLUDED:{m.group(0).lower()}"
     bits = []
     if SENIORITY_REGEX is not None:
         m = SENIORITY_REGEX.search(title_text) or (
