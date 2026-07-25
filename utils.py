@@ -68,22 +68,34 @@ KW = os.getenv("KEYWORDS", DEFAULT_SENIORITY)
 # non-US (Education Perfect/AU, Kahoot!/NO, Zen Educate/UK, Renaissance EMEA),
 # and "personalisation" would otherwise silently miss every one of their roles.
 DEFAULT_DOMAIN = "|".join([
-    # --- personalization / adaptive ---
+    # ORDER MATTERS for one caller: adapters.fetch_dejobs() issues server-side
+    # searches using only the FIRST 6 terms of this list (DirectEmployers sites
+    # like pearson.jobs have thousands of postings, so it needs a narrow query
+    # to get a usable candidate set). The first six are therefore deliberately
+    # interleaved across both halves of the domain - an earlier version led with
+    # six personalization terms in a row, which meant Pearson (one of the
+    # largest assessment employers in the config) was never searched for
+    # assessment roles at all. Every other platform filters locally and is
+    # unaffected by ordering.
+    "personalization",
+    "assessment",
+    "adaptive learning",
+    "psychometrics",
+    "personalized learning",
+    "measurement",
+    # --- remainder: personalization / adaptive ---
     # Noun forms and explicit two-word phrases only. Bare "personalized" and
     # bare "adaptive" were deliberately REMOVED: "we deliver personalized
     # instruction" and "our adaptive curriculum" are marketing boilerplate in
     # essentially every edtech job description, so as description-scoped terms
-    # they matched almost everything. The noun/phrase forms below indicate the
-    # role is actually ABOUT personalization, not just at a company that
-    # mentions it.
-    "personalization", "personalisation",
-    "personalized learning", "personalised learning",
-    "adaptive learning", "adaptive engine", "adaptive instruction",
+    # they matched almost everything. The noun/phrase forms indicate the role
+    # is actually ABOUT personalization, not just at a company that mentions it.
+    "personalisation", "personalised learning",
+    "adaptive engine", "adaptive instruction",
     "differentiated instruction",
     "recommendation engine", "learner model", "knowledge tracing",
-    # --- assessment / measurement ---
-    "assessment", "psychometric", "psychometrics",
-    "measurement", "efficacy",
+    # --- remainder: assessment / measurement ---
+    "psychometric", "efficacy",
     "item development", "item writing", "item bank", "test development",
     "formative assessment", "summative assessment", "benchmark assessment",
     "learning science", "learning sciences",
