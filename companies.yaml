@@ -23,33 +23,31 @@ greenhouse:
   - securly13
   - skillsoft
   - khanacademy
-  - numerade
+  - numeradecareers   # was "numerade" - wrong slug, confirmed correct token via live board
   - generalassembly
-  - outschool
   - newglobesandbox
   - elevatek12teachwithus
   - seesaw
-  - tutorme
   - follettsoftware
-  - panoramaeducation
-  - skillsoft
+  - panoramaed        # was "panoramaeducation" - wrong slug, confirmed correct token via live board
   - artofproblemsolving
   - campusedu
   - nerdy
   - d2l
-  - guildeducation
   - studycareers     # Study.com
   - udemy           # Udemy
-  - bettermeus      # Better Me US
   - noredink        # NoRedInk
   - edreports
   - teachforall
   - transcendeducation
   - chanzuckerberginitiative
   - guild
-  - bettermeus        # Think Academy / Better Me US
+  - thinkacademyus    # was "bettermeus" (x2) - wrong slug; "Better Me" is a Think Academy US program, confirmed correct token via live board
   - axiomtalentplatform
   - trustpilot        # Instructional design (product education)
+  # --- Added from research pass (confirmed live via job-boards.greenhouse.io) ---
+  - learneo           # Learneo - parent of Course Hero, CliffsNotes, LitCharts, QuillBot, Scribbr, Symbolab
+  - civitaslearning   # Civitas Learning - higher-ed student success/retention analytics
 
 # ---------- LEVER ----------
 lever:
@@ -72,6 +70,8 @@ lever:
   - empowerly         # Empowerly – college counseling / admissions advising
   - zeneducate        # Zen Educate – staffing platform for educators            # Age of Learning (ABCmouse) – early learning products
   - deeplearningai  
+  # --- Added from research pass (confirmed live via jobs.lever.co) ---
+  - prodigyeducation  # Prodigy Education - K-12 game-based math/English platform
 
 # ---------- WORKDAY (headless) ----------
 workday:
@@ -186,17 +186,24 @@ workable:
     account: schoolinks
   - company: UWorld
     account: uworld
+  # --- Added from research pass (confirmed live via apply.workable.com) ---
+  - company: Coursedog
+    account: coursedog-1     # note the "-1" suffix - it's part of the real account slug, don't drop it
+  - company: Kahoot!
+    account: kahoot
+  - company: Discovery Education
+    account: discoveryed     # K-12 curriculum brand - distinct from Discovery/Warner Bros. Discovery media co.
 
 # ---------- iCIMS ----------
 icims:
   - company: PowerSchool
     host: careers-powerschool.icims.com
-  - company: Savvas Learning Company
-    host: careers-savvas.icims.com
-  - company: Renaissance Learning
-    host: careers-renlearn.icims.com
-  - company: Edmentum
-    host: careers-edmentum.icims.com
+  # Removed: Savvas Learning Company (careers-savvas.icims.com) - 404, confirmed migrated off
+  # iCIMS; their live careers page is the "selfhosted" Savvas entry below instead.
+  # Removed: Renaissance Learning (careers-renlearn.icims.com) - 404, stale; their current
+  # live board is Greenhouse "renaissancelearning-nam" above (already in this file, working).
+  # Removed: Edmentum (careers-edmentum.icims.com) - 404, stale; their current live board is
+  # Greenhouse "edmentum" above (already in this file, working).
   - company: Steampunk
     host: careers-steampunk.icims.com
   - company: Cadence Education
@@ -205,6 +212,9 @@ icims:
     host: careers-learnitacademic.icims.com
   - company: Barnes & Noble Education
     host: careers-bned.icims.com
+  # --- Added from research pass (confirmed live) ---
+  - company: Ellucian
+    host: usa-ellucian.icims.com   # higher-ed SIS/ERP (Banner, Colleague)
 
 # ---------- TEAMTAILOR ----------
 teamtailor:
@@ -229,6 +239,9 @@ successfactors:
 jobvite:
   - company: Imagine Learning
     host: jobs.jobvite.com
+  # --- Added from research pass (confirmed live via jobs.jobvite.com/anthology) ---
+  - company: Anthology
+    host: jobs.jobvite.com/anthology   # formerly Blackboard; higher-ed LMS/SIS/CRM
 
 # ---------- PERELESS / SUBMIT4JOBS ----------
 pereless:
@@ -246,3 +259,25 @@ dejobs:
 selfhosted:
   - company: Savvas Learning Company
     careers_url: https://www.savvas.com/company/join-us/careers
+
+# ---------- ASHBY ----------
+# NOTE: no fetcher wired up in adapters.py/main.py yet - these entries are inert
+# until fetch_ashby() exists and is registered in DICT_FETCHERS. Config only for now.
+ashby:
+  - company: Handshake
+    board: handshake   # college career/recruiting network
+                        # public API: api.ashbyhq.com/posting-api/job-board/{board}
+                        # HTML board: jobs.ashbyhq.com/{board}
+
+# ---------- RIPPLING ----------
+# NOTE: no fetcher wired up in adapters.py/main.py yet - these entries are inert
+# until fetch_rippling() exists and is registered in DICT_FETCHERS. Config only for now.
+rippling:
+  - company: Modern Campus
+    account: moderncampus   # higher-ed CMS/catalog/lifelong learning
+                            # board: ats.rippling.com/moderncampus/jobs
+  - company: ParentSquare
+    account: parentsquare   # school-family communication; also covers Remind
+                            # (Remind's postings appear consolidated here post-affiliation -
+                            # no separate Remind board confirmed)
+                            # board: ats.rippling.com/parentsquare
