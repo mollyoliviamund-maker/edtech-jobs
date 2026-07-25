@@ -2,40 +2,112 @@ name: EdTech Job Watcher
 
 on:
   schedule:
-    - cron: "0 */2 * * *"   # every 2 hours
+    # Every 6 hours. Changed from every 2 hours ("0 */2 * * *") for two reasons:
+    #   1. Job boards post maybe once or twice a day - 12 checks/day was ~10x
+    #      more often than the data actually changes.
+    #   2. Volume is the main thing that gets a scraper WAF-blocked, and we
+    #      already fought 403/404/406/405 false failures across Greenhouse,
+    #      Lever, iCIMS and Workday. Hitting ~100 companies 12x/day makes that
+    #      materially worse for no extra signal.
+    # To go back to every 2 hours, use: "0 */2 * * *"
+    - cron: "0 */6 * * *"
   workflow_dispatch: {}
+
+# Prevents two runs overlapping. Without this, a run that takes longer than the
+# cron interval overlaps the next one, and BOTH try to commit + push the same
+# CSV/seen files - which produces push rejections and can lose dedup state.
+# cancel-in-progress: false so an in-flight scrape finishes rather than being
+# killed halfway through (GitHub queues at most one pending run per group).
+concurrency:
+  group: edtech-job-watcher
+  cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    # A full pass over ~100 companies across 11 ATS platforms - including
+    # Playwright for 14 Workday tenants and detail-page loops for iCIMS/ADP/
+    # SuccessFactors - realistically runs 45-90 min. Without an explicit cap a
+    # hung browser can burn the 6-hour default of Actions minutes.
+    timeout-minutes: 120
     permissions:
       contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so the rebase in the commit step below can actually
+          # resolve against the remote. With the default shallow clone
+          # (fetch-depth: 1), `git pull --rebase` frequently fails.
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          # Caches pip downloads between runs - saves ~30-60s per run.
+          cache: "pip"
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Playwright browser binaries are ~150MB and take 1-2 min to install.
+      # Caching them cuts that to a few seconds on all but the first run after
+      # a Playwright version bump.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
+
       - name: Install Playwright browsers
+        # --with-deps still needs to run for OS-level libs even on a cache hit,
+        # but it's much faster when the browser binaries are already present.
         run: python -m playwright install --with-deps chromium
 
       - name: Run scraper
         env:
-          KEYWORDS: "assessment|director|program|project|product|testing|math|science"
+          # ------------------------------------------------------------------
+          # KEYWORDS is deliberately NOT set here.
+          #
+          # It used to be:
+          #   KEYWORDS: "assessment|director|program|project|product|testing|math|science"
+          #
+          # That single OR-list mixed three different kinds of term together:
+          #   seniority (director) / domain (assessment, testing) /
+          #   subject (math, science, program, project, product)
+          # Any ONE match was enough to record a job, so "Part Time Math Tutor"
+          # matched on "math" - which is why a run came back as 47 hits made up
+          # almost entirely of part-time math tutors.
+          #
+          # utils.py now maintains two lists that must BOTH match (seniority
+          # against the title, domain against title-or-description) plus a
+          # title-exclusion veto for tutor/teacher/instructor/coach roles.
+          # Setting KEYWORDS here silently overrides the seniority list and
+          # defeats that design, so leave it unset unless you intend to.
+          #
+          # To override intentionally, set BOTH so the pair stays coherent:
+          #   KEYWORDS: "director|manager|vice president|vp|svp|evp|head of|chief|principal|lead"
+          #   DOMAIN_KEYWORDS: "personalization|assessment|psychometrics|adaptive learning|..."
+          # ------------------------------------------------------------------
           MATCH_SCOPE: "title"
           TAG: "edtech"
+          # If volume is still too high, uncomment to require the domain term in
+          # the TITLE rather than allowing it to come from the description body.
+          # Stricter, but drops roles like "VP, Product" whose personalization/
+          # assessment signal only appears in the description.
+          # DOMAIN_SCOPE: "title"
         run: python scraper.py
 
       - name: Check if email body exists
         id: emailcheck
+        # always() so this still evaluates if the scraper step failed partway -
+        # a partial run may still have found real jobs worth sending.
+        if: always()
         run: |
           if [ -f email_body.md ] && [ -s email_body.md ]; then
             echo "has_email=true" >> $GITHUB_OUTPUT
@@ -44,7 +116,7 @@ jobs:
           fi
 
       - name: Send email notification
-        if: steps.emailcheck.outputs.has_email == 'true'
+        if: always() && steps.emailcheck.outputs.has_email == 'true'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}   # smtp.gmail.com
@@ -55,12 +127,83 @@ jobs:
           subject: "New edtech jobs found"
           to: ${{ secrets.TO_EMAIL }}
           from: ${{ secrets.FROM_EMAIL }}
+          # Note: the file is named .md but contains HTML - that's intentional
+          # and matches EMAIL_BODY_PATH in scraper.py. html_body handles it
+          # correctly. Don't rename one without renaming the other.
           html_body: file://email_body.md
 
       - name: Commit artifacts
+        # always() matters here: scraper.py saves dedup state in a `finally`
+        # block, so even a run that errors out mid-scrape has real progress in
+        # seen_edtech.json. Without always(), a failed scraper step skips this
+        # commit and that progress is thrown away - meaning the next run
+        # re-reports everything it already found as "new".
+        if: always()
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.csv *.json || true
-          git commit -m "Update edtech jobs $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes"
-          git push
+
+          # Explicit paths rather than `git add *.csv *.json`. The old glob was
+          # expanded by the shell before git saw it, so it silently did nothing
+          # when a file was missing (masked by `|| true`) and would have swept
+          # in any other stray .json at the repo root.
+          git add -- edtech_jobs.csv seen_edtech.json 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update edtech jobs $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          # Rebase before pushing. The original pushed straight to the remote,
+          # which fails whenever the branch has moved since checkout (a code
+          # push, or another run's commit). That failure mode is guaranteed to
+          # show up eventually on a schedule this frequent.
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pushed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} failed; retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "::error::Failed to push artifacts after 3 attempts."
+          exit 1
+
+      # Keeps a copy of the results even if the commit/push step fails, so a
+      # bad run never means losing the data outright.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edtech-jobs-${{ github.run_number }}
+          path: |
+            edtech_jobs.csv
+            seen_edtech.json
+            email_body.md
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # scraper.py intentionally exits 0 even when individual companies fail, so
+      # a couple of flaky boards don't fail the whole scheduled run. The
+      # tradeoff is that systematic breakage (an ATS changing its API, a WAF
+      # blocking everything) looks identical to a quiet day: green check, no
+      # email. This surfaces that in the run summary so it's visible without
+      # digging through stderr.
+      - name: Report scrape health
+        if: always()
+        run: |
+          echo "### EdTech Job Watcher run ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f edtech_jobs.csv ]; then
+            TOTAL=$(($(wc -l < edtech_jobs.csv) - 1))
+            echo "- Total rows in edtech_jobs.csv: **${TOTAL}**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- :warning: edtech_jobs.csv not found" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -f email_body.md ] && [ -s email_body.md ]; then
+            echo "- New jobs this run: **yes** (email sent)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- New jobs this run: none" >> $GITHUB_STEP_SUMMARY
+          fi
