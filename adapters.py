@@ -49,7 +49,7 @@ except Exception:  # pragma: no cover
 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urljoin
 
 from utils import matches_kw, mk_row
 
@@ -176,6 +176,12 @@ def _fetch_greenhouse_html(slug: str) -> List[Dict[str, Any]]:
     real-world cases: classdojo, grammarly - the slug is correct, only the JSON
     API is switched off. Scrapes the HTML board instead, same pattern as
     fetch_workable's HTML fallback below.
+
+    Caveat: title extraction (<h1>) is reliable across Greenhouse templates;
+    the location selectors below are a best-effort guess (untested against
+    live page source from this environment) and may come back empty even when
+    a real location exists on the page. Doesn't affect keyword matching when
+    MATCH_SCOPE=title (the default) - only affects the displayed location.
     """
     out: List[Dict[str, Any]] = []
     scope = os.getenv("MATCH_SCOPE", "title").lower()
@@ -185,7 +191,8 @@ def _fetch_greenhouse_html(slug: str) -> List[Dict[str, Any]]:
     for list_url in list_urls:
         try:
             r = request_with_retry(list_url)
-        except Exception:
+        except Exception as e:
+            _warn(f"[WARN] greenhouse(html):{slug} list fetch failed for {list_url} -> {e}")
             continue
         if r is None or r.status_code >= 400:
             continue
@@ -194,19 +201,25 @@ def _fetch_greenhouse_html(slug: str) -> List[Dict[str, Any]]:
             href = a.get("href") or ""
             if not href:
                 continue
-            if href.startswith("//"):
-                href = "https:" + href
-            elif href.startswith("/"):
-                href = f"https://job-boards.greenhouse.io{href}" if href.startswith(f"/{slug}") else href
-            if re.search(r"/jobs/\d+", href) and slug in href:
-                links.add(href.split("?")[0])
+            # urljoin resolves any relative form (leading "/", leading "//", or
+            # a nested relative path) against the page we actually fetched.
+            # A previous version only special-cased hrefs starting with
+            # exactly "/{slug}" and left everything else as a broken relative
+            # path that silently failed later - urljoin has no such gap.
+            abs_href = urljoin(list_url, href)
+            if re.search(r"/jobs/\d+", abs_href) and slug in abs_href:
+                links.add(abs_href.split("?")[0])
         if links:
             break  # got a working board host, no need to try the other domain too
 
     for job_url in list(links)[:150]:
         _polite_sleep()
         try:
-            jr = request_with_retry(job_url)
+            # retries=1 here (vs. the default 2 used for the primary existence
+            # checks above): this runs once per job on boards with up to 150
+            # postings, so the retry budget is deliberately tighter to bound
+            # worst-case runtime on companies with many dead/flaky links.
+            jr = request_with_retry(job_url, retries=1)
         except Exception:
             continue
         if jr is None or jr.status_code >= 400:
@@ -232,7 +245,11 @@ def _fetch_greenhouse_html(slug: str) -> List[Dict[str, Any]]:
 def fetch_greenhouse(slug: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
-    r = request_with_retry(url)
+    try:
+        r = request_with_retry(url)
+    except Exception as e:
+        _warn(f"[WARN] greenhouse:{slug} -> request failed: {e}")
+        return out
     if r is None or r.status_code >= 400:
         status = r.status_code if r is not None else "no response"
         if r is not None and r.status_code == 404:
@@ -279,6 +296,10 @@ def _fetch_lever_html(slug: str) -> List[Dict[str, Any]]:
     still live - same pattern as the Greenhouse fallback above. Confirmed real
     case: "review" (The Princeton Review) came back 404 on the API in one
     verify run despite very recent live postings on jobs.lever.co/review.
+
+    Caveat: same as the Greenhouse fallback - title (<h1>) is reliable,
+    location selectors are a best-effort guess untested against live page
+    source and may come back empty on a real, valid posting.
     """
     out: List[Dict[str, Any]] = []
     scope = os.getenv("MATCH_SCOPE", "title").lower()
@@ -286,7 +307,8 @@ def _fetch_lever_html(slug: str) -> List[Dict[str, Any]]:
     list_url = f"https://jobs.lever.co/{slug}"
     try:
         r = request_with_retry(list_url)
-    except Exception:
+    except Exception as e:
+        _warn(f"[WARN] lever(html):{slug} list fetch failed -> {e}")
         return out
     if r is None or r.status_code >= 400:
         return out
@@ -297,17 +319,14 @@ def _fetch_lever_html(slug: str) -> List[Dict[str, Any]]:
         href = a.get("href") or ""
         if not href:
             continue
-        if href.startswith("//"):
-            href = "https:" + href
-        elif href.startswith("/"):
-            href = f"https://jobs.lever.co{href}"
-        if _LEVER_ID_RE.search(href):
-            links.add(href.split("?")[0])
+        abs_href = urljoin(list_url, href)
+        if _LEVER_ID_RE.search(abs_href):
+            links.add(abs_href.split("?")[0])
 
     for job_url in list(links)[:150]:
         _polite_sleep()
         try:
-            jr = request_with_retry(job_url)
+            jr = request_with_retry(job_url, retries=1)
         except Exception:
             continue
         if jr is None or jr.status_code >= 400:
@@ -335,7 +354,11 @@ def _fetch_lever_html(slug: str) -> List[Dict[str, Any]]:
 def fetch_lever(slug: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
-    r = request_with_retry(url)
+    try:
+        r = request_with_retry(url)
+    except Exception as e:
+        _warn(f"[WARN] lever:{slug} -> request failed: {e}")
+        return out
     if r is None or r.status_code >= 400:
         status = r.status_code if r is not None else "no response"
         if r is not None and r.status_code == 404:
@@ -366,7 +389,12 @@ def fetch_lever(slug: str) -> List[Dict[str, Any]]:
         if matches_kw(title, location, desc):
             matched = "title" if scope == "title" else "title_or_description"
         elif apply_url and scope != "title":
-            jr = request_with_retry(apply_url)
+            # Wrapped so one flaky description fetch can't lose every posting
+            # already matched earlier in this same loop.
+            try:
+                jr = request_with_retry(apply_url, retries=1)
+            except Exception:
+                jr = None
             if jr is not None and jr.status_code < 400:
                 salary = salary or _salary_from_html(jr.text)
                 if matches_kw("", "", jr.text or ""):
@@ -408,10 +436,15 @@ def fetch_workday_headless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
-        # Plain, standard Chrome UA - no custom suffix. Workday sits behind bot
-        # detection that's stricter than most; anything that doesn't look like
-        # an ordinary browser (including an odd UA tag) raises the odds of a
-        # 406/challenge page even through a real browser engine.
+        # Plain, standard Chrome UA - no custom suffix, for the same
+        # fingerprinting reason as the shared SESSION above. NOTE: unlike the
+        # Greenhouse/Lever/iCIMS fixes in this file, this change is precautionary,
+        # not a confirmed bug fix - the 406s we actually observed came from
+        # verify_endpoints.py's separate plain-HTTP check, not from this
+        # Playwright-driven function, which drives a real Chromium instance and
+        # was never directly observed failing. Removing an unnecessary
+        # automation fingerprint is good hygiene regardless, but treat this one
+        # as "hardened," not "fixed," until it's actually been tested.
         context = browser.new_context(ignore_https_errors=True, user_agent=UA)
         page = context.new_page()
         page.on("response", lambda resp: parse_jobs_url(resp.url))
@@ -524,7 +557,11 @@ def fetch_workable(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     def try_api(acc: str) -> List[Dict[str, Any]]:
         url = f"https://apply.workable.com/api/v3/accounts/{acc}/jobs?state=published"
-        r = request_with_retry(url)
+        try:
+            r = request_with_retry(url)
+        except Exception as e:
+            _warn(f"[WARN] workable:{acc} -> request failed: {e}")
+            return []
         if r is None:
             _warn(f"[WARN] workable:{acc} -> no response")
             return []
@@ -556,7 +593,11 @@ def fetch_workable(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     def try_html(acc: str) -> List[Dict[str, Any]]:
         list_url = f"https://apply.workable.com/{acc}/"
-        r = request_with_retry(list_url)
+        try:
+            r = request_with_retry(list_url)
+        except Exception as e:
+            _warn(f"[WARN] workable(html):{acc} list -> request failed: {e}")
+            return []
         if r is None or r.status_code >= 400:
             _warn(f"[WARN] workable(html):{acc} list -> HTTP {r.status_code if r is not None else 'no response'}")
             return []
@@ -573,7 +614,10 @@ def fetch_workable(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
         for job_url in list(links)[:100]:
             _polite_sleep()
-            jr = request_with_retry(job_url)
+            try:
+                jr = request_with_retry(job_url, retries=1)
+            except Exception:
+                continue
             if jr is None or jr.status_code >= 400:
                 continue
             jsoup = BeautifulSoup(jr.text, "lxml")
@@ -623,7 +667,12 @@ def fetch_icims(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     candidates = ["/jobs/search?ss=1", "/jobs/search", "/jobs", "/"]
     r = None
     for p in candidates:
-        r = request_with_retry(f"https://{host}{p}")
+        try:
+            r = request_with_retry(f"https://{host}{p}")
+        except Exception as e:
+            _warn(f"[WARN] icims:{host}{p} -> request failed: {e}")
+            r = None
+            continue
         if r is not None and r.status_code == 200:
             break
     if r is None or r.status_code != 200:
@@ -640,7 +689,10 @@ def fetch_icims(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     for job_url in list(job_links)[:120]:
         _polite_sleep()
-        jr = request_with_retry(job_url)
+        try:
+            jr = request_with_retry(job_url, retries=1)
+        except Exception:
+            continue
         if jr is None or jr.status_code >= 400:
             continue
         jsoup = BeautifulSoup(jr.text, "lxml")
@@ -664,7 +716,11 @@ def fetch_teamtailor(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     company = entry.get("company") or host
     if not host: return out
     url = f"https://{host}/jobs"
-    r = request_with_retry(url)
+    try:
+        r = request_with_retry(url)
+    except Exception as e:
+        _warn(f"[WARN] teamtailor:{host} -> request failed: {e}")
+        return out
     if r is None or r.status_code >= 400:
         _warn(f"[WARN] teamtailor:{host} -> HTTP {r.status_code if r is not None else 'no response'}")
         return out
@@ -707,7 +763,10 @@ def fetch_adp(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not host: return out
     urls = [f"https://{host}/career-center/search", f"https://{host}/career-center"]
     for url in urls:
-        r = request_with_retry(url)
+        try:
+            r = request_with_retry(url)
+        except Exception:
+            continue
         if r is None or r.status_code >= 400:
             continue
         soup = BeautifulSoup(r.text, "lxml")
@@ -716,7 +775,10 @@ def fetch_adp(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not job_url: continue
             if job_url.startswith("/"): job_url = f"https://{host}{job_url}"
             _polite_sleep()
-            jr = request_with_retry(job_url)
+            try:
+                jr = request_with_retry(job_url, retries=1)
+            except Exception:
+                continue
             if jr is None or jr.status_code >= 400: continue
             jsoup = BeautifulSoup(jr.text, "lxml")
             title_el = jsoup.find("h1") or jsoup.find("h2")
@@ -736,7 +798,11 @@ def fetch_successfactors(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     host = (entry.get("host") or "").strip().rstrip("/")
     company = entry.get("company") or host
     if not host: return out
-    r = request_with_retry(f"https://{host}")
+    try:
+        r = request_with_retry(f"https://{host}")
+    except Exception as e:
+        _warn(f"[WARN] successfactors:{host} -> request failed: {e}")
+        return out
     if r is None or r.status_code >= 400:
         _warn(f"[WARN] successfactors:{host} -> HTTP {r.status_code if r is not None else 'no response'}")
         return out
@@ -745,7 +811,10 @@ def fetch_successfactors(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     for job_url in list(links)[:80]:
         if job_url.startswith("/"): job_url = f"https://{host}{job_url}"
         _polite_sleep()
-        jr = request_with_retry(job_url)
+        try:
+            jr = request_with_retry(job_url, retries=1)
+        except Exception:
+            continue
         if jr is None or jr.status_code >= 400: continue
         jsoup = BeautifulSoup(jr.text, "lxml")
         title_el = jsoup.find("h1") or jsoup.find("h2")
@@ -765,7 +834,11 @@ def fetch_jobvite(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     host = (entry.get("host") or "").strip().rstrip("/")
     company = entry.get("company") or host
     if not host: return out
-    r = request_with_retry(f"https://{host}/")
+    try:
+        r = request_with_retry(f"https://{host}/")
+    except Exception as e:
+        _warn(f"[WARN] jobvite:{host} -> request failed: {e}")
+        return out
     if r is None or r.status_code >= 400:
         _warn(f"[WARN] jobvite:{host} -> HTTP {r.status_code if r is not None else 'no response'}")
         return out
@@ -775,7 +848,10 @@ def fetch_jobvite(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not job_url: continue
         if job_url.startswith("/"): job_url = f"https://{host}{job_url}"
         _polite_sleep()
-        jr = request_with_retry(job_url)
+        try:
+            jr = request_with_retry(job_url, retries=1)
+        except Exception:
+            continue
         if jr is None or jr.status_code >= 400: continue
         jsoup = BeautifulSoup(jr.text, "lxml")
         title_el = jsoup.find("h1") or jsoup.find("h2")
@@ -795,7 +871,11 @@ def fetch_pereless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     host = (entry.get("host") or "").strip().rstrip("/")
     company = entry.get("company") or host
     if not host: return out
-    r = request_with_retry(f"https://{host}/")
+    try:
+        r = request_with_retry(f"https://{host}/")
+    except Exception as e:
+        _warn(f"[WARN] pereless:{host} -> request failed: {e}")
+        return out
     if r is None or r.status_code >= 400:
         _warn(f"[WARN] pereless:{host} -> HTTP {r.status_code if r is not None else 'no response'}")
         return out
@@ -805,7 +885,10 @@ def fetch_pereless(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not job_url: continue
         if job_url.startswith("/"): job_url = f"https://{host}{job_url}"
         _polite_sleep()
-        jr = request_with_retry(job_url)
+        try:
+            jr = request_with_retry(job_url, retries=1)
+        except Exception:
+            continue
         if jr is None or jr.status_code >= 400: continue
         jsoup = BeautifulSoup(jr.text, "lxml")
         title_el = jsoup.find("h1") or jsoup.find("h2") or jsoup.title
@@ -877,7 +960,7 @@ def fetch_dejobs(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
     for job_url in job_links[:100]:
         _polite_sleep()
         try:
-            jr = request_with_retry(job_url)
+            jr = request_with_retry(job_url, retries=1)
             if jr is None or jr.status_code >= 400: continue
             jsoup = BeautifulSoup(jr.text, "lxml")
             title_el = jsoup.find("h1") or jsoup.select_one("h1.job-title")
