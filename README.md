@@ -1,11 +1,6 @@
-# Multi-ATS Music Job Watcher
+# Multi-ATS Music Watcher
 
-Watches a list of companies across **Greenhouse, Lever, Workday CxS, Workable, iCIMS, Teamtailor, ADP Workforce Now, SAP SuccessFactors, Jobvite, and Pereless/Submit4Jobs** for postings whose title or description contains **"Music"** (case-insensitive).
-
-- Results → `music_jobs.csv`
-- Dedupe → `seen_music.json`
-- Configure targets → `companies.yaml`
-- CI schedule → `.github/workflows/scrape.yml`
+Watches a list of companies across **Greenhouse, Lever, Workday CxS, Workable, iCIMS, Teamtailor, ADP Workforce Now, SAP SuccessFactors, Jobvite, and Pereless/Submit4Jobs** for postings whose title or description contains information (case-insensitive).
 
 ## Local Run
 
